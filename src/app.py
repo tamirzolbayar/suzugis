@@ -5,12 +5,18 @@ import folium
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
-from popup import make_popup_html
+from popup import (
+    ROAD_CATEGORY_TYPES,
+    ROAD_CENTERLINE_TYPES,
+    ROAD_STATE_TYPES,
+    ROAD_WIDTH_TYPES,
+    decode_code,
+)
 from map_generator import style_by_restriction
 from excel_loader import load_excel, save_excel
 from filters import apply_filters
 from config import DEFAULT_LOCATION, DEFAULT_ZOOM, MAP_STYLES
-from permit_documents import make_permit_link_html
+from permit_documents import get_permit_pdf_path, make_permit_link_html
 
 
 def parse_progress(value):
@@ -51,6 +57,19 @@ def get_feature_bounds(features):
         return None
 
     return [[min(lats), min(lngs)], [max(lats), max(lngs)]]
+
+
+def prepare_map_properties(features):
+    for feature in features:
+        props = feature.setdefault("properties", {})
+        restriction_id = props.get("規制ID", "")
+        props["道路中心線"] = decode_code(ROAD_CENTERLINE_TYPES, props.get("N13_002", ""))
+        props["道路分類"] = decode_code(ROAD_CATEGORY_TYPES, props.get("N13_003", ""))
+        props["道路状態"] = decode_code(ROAD_STATE_TYPES, props.get("N13_004", ""))
+        props["幅員"] = decode_code(ROAD_WIDTH_TYPES, props.get("N13_006", ""))
+        props["道路使用許可"] = (
+            "登録済" if get_permit_pdf_path(BASE_DIR, restriction_id).exists() else "未登録"
+        )
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -245,29 +264,82 @@ folium.TileLayer(
 ).add_to(m)
 
 if len(geojson_data["features"]) > 0:
+    prepare_map_properties(geojson_data["features"])
+
     feature_bounds = get_feature_bounds(geojson_data["features"])
     if feature_bounds is not None:
         m.fit_bounds(feature_bounds, padding=(30, 30))
 
-    gj = folium.GeoJson(
+    folium.GeoJson(
         geojson_data,
         name="規制区間",
         style_function=lambda feature: style_by_restriction(
             feature,
             st.session_state.get("selected_restriction_id")
-            )
+        ),
+        tooltip=folium.GeoJsonTooltip(
+            fields=[
+                "規制ID",
+                "工事名",
+                "規制種別",
+                "施工者",
+                "進捗率",
+                "予定進捗率",
+                "道路分類",
+                "道路状態",
+                "幅員",
+            ],
+            aliases=[
+                "ID",
+                "工事名",
+                "規制",
+                "施工者",
+                "進捗",
+                "予定",
+                "道路分類",
+                "道路状態",
+                "幅員",
+            ],
+            sticky=True,
+            labels=True,
+        ),
+        popup=folium.GeoJsonPopup(
+            fields=[
+                "規制ID",
+                "工事名",
+                "規制種別",
+                "開始日",
+                "終了日",
+                "施工者",
+                "進捗率",
+                "予定進捗率",
+                "道路中心線",
+                "道路分類",
+                "道路状態",
+                "幅員",
+                "道路使用許可",
+                "備考",
+            ],
+            aliases=[
+                "ID",
+                "工事名",
+                "規制",
+                "開始日",
+                "終了日",
+                "施工者",
+                "進捗",
+                "予定",
+                "道路中心線",
+                "道路分類",
+                "道路状態",
+                "幅員",
+                "道路使用許可",
+                "備考",
+            ],
+            labels=True,
+            max_width=420,
+        ),
     ).add_to(m)
-
-    for feature in geojson_data["features"]:
-        props = feature["properties"]
-        permit_link_html = make_permit_link_html(BASE_DIR, props.get("規制ID", ""))
-        road_info_html = make_popup_html(props, permit_link_html)
-        folium.GeoJson(
-            feature,
-            style_function=style_by_restriction,
-            tooltip=folium.Tooltip(road_info_html, sticky=True),
-            popup=folium.Popup(road_info_html, max_width=450)
-        ).add_to(m)
 
 else:
     st.warning("この条件に該当する規制区間はありません。")
