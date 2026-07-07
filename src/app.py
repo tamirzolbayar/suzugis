@@ -110,45 +110,51 @@ def line_coordinates_to_locations(feature):
     ]
 
 
-def make_neighboring_route(locations, offset_direction):
-    if len(locations) < 2:
-        return []
+def points_match(first, second):
+    return abs(first[0] - second[0]) < 0.0000001 and abs(first[1] - second[1]) < 0.0000001
 
-    start_lat, start_lng = locations[0]
-    end_lat, end_lng = locations[-1]
-    lng_delta = end_lng - start_lng
-    lat_delta = end_lat - start_lat
-    length = (lng_delta**2 + lat_delta**2) ** 0.5
 
-    if length == 0:
-        return []
+def append_connected_locations(route_locations, segment_locations):
+    if not route_locations:
+        return segment_locations
 
-    normal_lng = -lat_delta / length
-    normal_lat = lng_delta / length
-    offset = DETOUR_OFFSET_DEGREES * offset_direction
+    if points_match(route_locations[-1], segment_locations[0]):
+        return route_locations + segment_locations[1:]
 
-    return [
-        [lat + normal_lat * offset, lng + normal_lng * offset]
-        for lat, lng in locations
-    ]
+    if points_match(route_locations[-1], segment_locations[-1]):
+        return route_locations + list(reversed(segment_locations[:-1]))
+
+    if points_match(route_locations[0], segment_locations[0]):
+        return list(reversed(route_locations)) + segment_locations[1:]
+
+    if points_match(route_locations[0], segment_locations[-1]):
+        return list(reversed(route_locations)) + list(reversed(segment_locations[:-1]))
+
+    return route_locations + segment_locations
 
 
 def build_detour_routes(features, district):
     routes = []
     for source in DETOUR_ROUTE_SOURCES.get(district, []):
-        feature = find_feature_by_restriction_id(features, source["restriction_id"])
-        if feature is None:
-            continue
+        route_locations = []
+        missing_segment = False
 
-        neighboring_locations = make_neighboring_route(
-            line_coordinates_to_locations(feature),
-            source.get("offset", 1),
-        )
-        if neighboring_locations:
+        for restriction_id in source["restriction_ids"]:
+            feature = find_feature_by_restriction_id(features, restriction_id)
+            if feature is None:
+                missing_segment = True
+                break
+
+            route_locations = append_connected_locations(
+                route_locations,
+                line_coordinates_to_locations(feature),
+            )
+
+        if route_locations and not missing_segment:
             routes.append(
                 {
                     "name": source["name"],
-                    "locations": neighboring_locations,
+                    "locations": route_locations,
                 }
             )
 
@@ -174,14 +180,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "suzu_sample.geojson"
 EXCEL_PATH = BASE_DIR / "data" / "excel" / "restriction_list.xlsx"
 DETOUR_COLOR = "#2e7d32"
-DETOUR_OFFSET_DEGREES = 0.00012
 DETOUR_ROUTE_SOURCES = {
     "飯田": [
-        {"name": "飯田地区 迂回路 R-003", "restriction_id": "R-003", "offset": 1},
-        {"name": "飯田地区 迂回路 R-098", "restriction_id": "R-098", "offset": -1},
-        {"name": "飯田地区 迂回路 R-101", "restriction_id": "R-101", "offset": 1},
-        {"name": "飯田地区 迂回路 R-106", "restriction_id": "R-106", "offset": -1},
-        {"name": "飯田地区 迂回路 R-113", "restriction_id": "R-113", "offset": 1},
+        {
+            "name": "飯田地区 R-003迂回路",
+            "restriction_ids": ["R-099", "R-088", "R-089", "R-092", "R-094", "R-107", "R-108"],
+        },
+        {
+            "name": "飯田地区 R-098迂回路",
+            "restriction_ids": ["R-097", "R-100", "R-137", "R-154"],
+        },
+        {
+            "name": "飯田地区 R-101迂回路",
+            "restriction_ids": ["R-153", "R-123", "R-116", "R-110", "R-102"],
+        },
+        {
+            "name": "飯田地区 R-106迂回路",
+            "restriction_ids": ["R-120", "R-113", "R-108"],
+        },
     ]
 }
 PRIORITY_DISTRICTS = ["蛸島", "正院", "飯田", "上戸", "直", "宝立"]
