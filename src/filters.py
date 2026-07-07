@@ -4,7 +4,8 @@ import pandas as pd
 def apply_filters(
     geojson_data,
     restriction_dict,
-    target_date,
+    period_start,
+    period_end,
     show_full_closure,
     show_alternate,
     show_lane,
@@ -42,11 +43,14 @@ def apply_filters(
         start = pd.to_datetime(props["開始日"])
         end = pd.to_datetime(props["終了日"])
 
-        if not (start <= pd.to_datetime(target_date) <= end):
+        period_start = pd.to_datetime(period_start)
+        period_end = pd.to_datetime(period_end)
+
+        if end < period_start or start > period_end:
             continue
 
         total_days = (end - start).days
-        elapsed_days = (pd.to_datetime(target_date) - start).days
+        elapsed_days = (period_end - start).days
 
         if total_days <= 0:
             schedule_progress = 100

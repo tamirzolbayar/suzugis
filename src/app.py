@@ -421,10 +421,17 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("📅 表示条件")
 
-    target_date = st.date_input(
-        "対象日",
-        value=pd.to_datetime("2026-07-15")
-    )
+    default_period_start = pd.to_datetime("2026-07-15")
+    default_period_end = pd.to_datetime("2026-07-16")
+    period_cols = st.columns(2)
+    with period_cols[0]:
+        period_start = st.date_input("開始日", value=default_period_start)
+    with period_cols[1]:
+        period_end = st.date_input("終了日", value=default_period_end)
+
+    if pd.to_datetime(period_start) > pd.to_datetime(period_end):
+        st.warning("開始日は終了日以前にしてください。")
+        period_start, period_end = period_end, period_start
 
     selected_districts = st.multiselect(
         "重点地区",
@@ -536,7 +543,8 @@ all_features = geojson_data["features"]
 geojson_data, filtered_features = apply_filters(
     geojson_data=geojson_data,
     restriction_dict=restriction_dict,
-    target_date=target_date,
+    period_start=period_start,
+    period_end=period_end,
     show_full_closure=show_full_closure,
     show_alternate=show_alternate,
     show_lane=show_lane,
@@ -575,16 +583,6 @@ delayed_count = sum(
 )
 detour_routes = build_sample_detour_routes(all_features)
 
-_, map_settings_col = st.columns([0.78, 0.22])
-with map_settings_col:
-    st.caption("地図設定")
-    map_style = st.selectbox(
-        "地図タイプ",
-        list(MAP_STYLES.keys()),
-        index=list(MAP_STYLES.keys()).index("淡色地図"),
-        label_visibility="collapsed",
-    )
-
 m = folium.Map(
     location=DEFAULT_LOCATION,
     zoom_start=DEFAULT_ZOOM,
@@ -593,11 +591,15 @@ m = folium.Map(
     height="850px",
 )
 
-folium.TileLayer(
-    tiles=MAP_STYLES[map_style]["url"],
-    attr=MAP_STYLES[map_style]["attr"],
-    name=map_style,
-).add_to(m)
+for map_style_name, map_style in MAP_STYLES.items():
+    folium.TileLayer(
+        tiles=map_style["url"],
+        attr=map_style["attr"],
+        name=map_style_name,
+        overlay=False,
+        control=True,
+        show=map_style_name == "淡色地図",
+    ).add_to(m)
 
 if len(geojson_data["features"]) > 0:
     prepare_map_properties(geojson_data["features"])
@@ -721,6 +723,6 @@ map_summary_html = f"""
 """
 m.get_root().html.add_child(folium.Element(map_summary_html))
 
-folium.LayerControl().add_to(m)
+folium.LayerControl(position="topright", collapsed=True).add_to(m)
 
 st_folium(m, width=1500, height=850)
