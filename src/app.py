@@ -108,8 +108,9 @@ def prepare_map_properties(features):
 BASE_DIR = Path(__file__).resolve().parent.parent
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "suzu_sample.geojson"
 EXCEL_PATH = BASE_DIR / "data" / "excel" / "restriction_list.xlsx"
+PRIORITY_DISTRICTS = ["蛸島", "正院", "飯田", "上戸", "直", "宝立"]
 
-st.set_page_config(page_title="SuzuGIS", layout="wide")
+st.set_page_config(page_title="珠洲市復旧道路管理マップ", layout="wide")
 
 st.markdown(
     """
@@ -139,15 +140,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="main-title">SuzuGIS</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">珠洲市復旧道路管理マップ</div>', unsafe_allow_html=True)
 df, restriction_dict = load_excel(EXCEL_PATH)
 
 
 # Sidebar
 
 with st.sidebar:
-    st.header("SuzuGIS")
-    st.caption("操作パネル")
+    st.header("珠洲市復旧道路管理マップ")
+    st.caption("復旧道路・交通規制 管理画面")
 
     st.markdown("---")
     st.subheader("🗺 地図設定")
@@ -164,6 +165,12 @@ with st.sidebar:
     target_date = st.date_input(
         "対象日",
         value=pd.to_datetime("2026-07-15")
+    )
+
+    selected_districts = st.multiselect(
+        "重点地区",
+        PRIORITY_DISTRICTS,
+        default=PRIORITY_DISTRICTS,
     )
 
     st.subheader("🚧 規制種別")
@@ -276,11 +283,53 @@ geojson_data, filtered_features = apply_filters(
     contractor_filter=contractor_filter,
 )
 
+if selected_districts:
+    filtered_features = [
+        feature
+        for feature in filtered_features
+        if feature.get("properties", {}).get("重点地区") in selected_districts
+    ]
+    geojson_data["features"] = filtered_features
+else:
+    filtered_features = []
+    geojson_data["features"] = []
+
 
 # Counts
 st.sidebar.markdown("---")
-st.sidebar.subheader("表示件数")
-st.sidebar.metric("規制区間数", len(filtered_features))
+st.sidebar.subheader("📊 表示集計")
+
+restriction_counts = pd.Series(
+    [feature.get("properties", {}).get("規制種別", "") for feature in filtered_features]
+)
+
+full_closure_count = int(restriction_counts.astype(str).str.contains("全面", na=False).sum())
+alternate_count = int(
+    restriction_counts.astype(str).str.contains("片側|片交", regex=True, na=False).sum()
+)
+lane_count = int(restriction_counts.astype(str).str.contains("車線", na=False).sum())
+completed_count = int(restriction_counts.astype(str).str.contains("完了", na=False).sum())
+
+metric_cols = st.sidebar.columns(2)
+metric_cols[0].metric("表示中", len(filtered_features))
+metric_cols[1].metric("全面通行止め", full_closure_count)
+metric_cols[0].metric("片側交互通行", alternate_count)
+metric_cols[1].metric("車線規制", lane_count)
+metric_cols[0].metric("完了", completed_count)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🧭 凡例")
+st.sidebar.markdown(
+    """
+    <div style="font-size:13px; line-height:1.9;">
+        <div><span style="display:inline-block;width:24px;height:5px;background:#d32f2f;margin-right:8px;vertical-align:middle;"></span>全面通行止め</div>
+        <div><span style="display:inline-block;width:24px;height:5px;background:#f57c00;margin-right:8px;vertical-align:middle;"></span>片側交互通行</div>
+        <div><span style="display:inline-block;width:24px;height:5px;background:#fbc02d;margin-right:8px;vertical-align:middle;"></span>車線規制</div>
+        <div><span style="display:inline-block;width:24px;height:5px;background:#1976d2;margin-right:8px;vertical-align:middle;"></span>完了</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 m = folium.Map(
     location=DEFAULT_LOCATION,
